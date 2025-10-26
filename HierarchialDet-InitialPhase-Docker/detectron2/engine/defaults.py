@@ -277,11 +277,10 @@ class DefaultPredictor:
         outputs = pred(inputs)
     """
 
-    def __init__(self, cfg, i):
+    def __init__(self, cfg):
         self.cfg = cfg.clone()  # cfg can be modified by model
         self.model = build_model(self.cfg)
         self.model.eval()
-        self.i=i
         if len(cfg.DATASETS.TEST):
             self.metadata = MetadataCatalog.get(cfg.DATASETS.TEST[0])
 
@@ -315,7 +314,7 @@ class DefaultPredictor:
             image = torch.as_tensor(image.astype("float32").transpose(2, 0, 1))
 
             inputs = {"image": image, "height": height, "width": width}
-            predictions = self.model([inputs],self.i)[0]
+            predictions = self.model([inputs])[0]
             return predictions
 
 

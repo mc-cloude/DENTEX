@@ -6,9 +6,10 @@
 #
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 import math
+import os
 import random
+from collections import defaultdict, namedtuple
 from typing import List
-from collections import namedtuple
 import json
 
 import torch
@@ -166,60 +167,55 @@ class DiffusionDet(nn.Module):
         self.freeze_class1=False
         self.freeze_class2=False
         self.freeze_class3=False
-        
-        boxes_train = "ibrahim/quadrant_detection_over_enumeration_train/inference/coco_instances_results.json"
-        boxes_valid = "ibrahim/quadrant_detection_over_enumeration_val/inference/coco_instances_results.json"
-        
-        
-        self.train_boxes=[]
-        self.valid_boxes=[]
-        #f_train = open(boxes_train)
-        #dict_train = json.load(f_train)
-        
-        #f_valid= open(boxes_valid)
-        #dict_valid=json.load(f_valid)
-        """
-        for inference in dict_train:
-          if inference["score"]>=0.5:
-            self.train_boxes.append(inference)
-          
-        for inference in dict_valid:
-          if inference["score"]>=0.5:
-            self.valid_boxes.append(inference)
-        """
+
+        self._dataset_name = cfg.DATASETS.TEST[0] if len(cfg.DATASETS.TEST) else None
+        self._validation_boxes = None
+        self._validation_sizes = None
         
         
         
-    def return_boxes_for_current_image(self, i):
-        boxes=[]
-        sizes=[]
-       
-        data_valid = MetadataCatalog.get("custom_validation_class")
-        json_valid = data_valid.json_file
-        
-        f_val = open(json_valid)
-        dict_val = json.load(f_val)
-        dict_images = dict_val["images"]
-        
-        if self.training:
-          for box in self.train_boxes:
-            if box["image_id"] == i:
-              boxes.append(box["bbox"])
-          
-        else:
-          for box in self.valid_boxes:
-              if box["image_id"] == i:
-                boxes.append(box["bbox"])
-          for image in dict_images:
-            if image["id"] == i:
-              sizes.append([image["height"], image["width"]])
-          
-          #print(sizes)
-          #import time as t
-          #t.sleep(10)
-            #if data_valid[k]["id"]==i:
-             # sizes= [data_valid["images"][k]["height"], [data_valid["images"][k]["height"]]]
-        return boxes, sizes        
+    def _load_validation_metadata(self):
+        if self._validation_boxes is not None and self._validation_sizes is not None:
+            return
+
+        if not self._dataset_name:
+            self._validation_boxes = defaultdict(list)
+            self._validation_sizes = {}
+            return
+
+        data_valid = MetadataCatalog.get(self._dataset_name)
+        json_valid = getattr(data_valid, "json_file", None)
+        if not json_valid or not os.path.isfile(json_valid):
+            self._validation_boxes = defaultdict(list)
+            self._validation_sizes = {}
+            return
+
+        with open(json_valid, "r") as f_val:
+            dict_val = json.load(f_val)
+
+        boxes = defaultdict(list)
+        for annotation in dict_val.get("annotations", []):
+            bbox = annotation.get("bbox")
+            image_id = annotation.get("image_id")
+            if bbox is not None and image_id is not None:
+                boxes[image_id].append(bbox)
+
+        sizes = {}
+        for image in dict_val.get("images", []):
+            image_id = image.get("id")
+            if image_id is not None:
+                sizes[image_id] = (image.get("height"), image.get("width"))
+
+        self._validation_boxes = boxes
+        self._validation_sizes = sizes
+
+    def return_boxes_for_current_image(self, image_id):
+        self._load_validation_metadata()
+
+        boxes = list(self._validation_boxes.get(image_id, []))
+        size = self._validation_sizes.get(image_id)
+
+        return boxes, size
     
     
     def control_box_in_quadrant(self, diffused_boxes, bbox_quadrant):
@@ -297,32 +293,34 @@ class DiffusionDet(nn.Module):
         batch = images_whwh.shape[0]
        
         
-        bbox_pre=[]
-        """
-        for i in range(batch):
-          bbox_pretrain, sizes=self.return_boxes_for_current_image(batched_inputs[i]["image_id"])
-          
-          
-          
-          
-          bbox_pretrain = box_cxcywh_to_xyxy(torch.tensor(bbox_pretrain))
-          
-          
-          h, w = sizes[0]
-          
-          
-          
-          box_xyxy = torch.as_tensor([w, h, w, h], dtype=torch.float, device="cuda")
-          
-          
-          bbox_pretrain=bbox_pretrain.to("cuda")
-          bbox_pretrain = bbox_pretrain / box_xyxy
-          bbox_pretrain = box_xyxy_to_cxcywh(bbox_pretrain)
-          
-          bbox_pre.append(bbox_pretrain) 
-       
-        """
-        
+        bbox_pre = []
+        for batched_input in batched_inputs:
+            image_id = batched_input.get("image_id")
+            boxes, size = self.return_boxes_for_current_image(image_id)
+            if not boxes or not size or size[0] is None or size[1] is None:
+                bbox_pre.append(None)
+                continue
+
+            h, w = size
+            if not h or not w:
+                bbox_pre.append(None)
+                continue
+
+            box_tensor = torch.tensor(boxes, dtype=torch.float32, device=self.device)
+            if box_tensor.numel() == 0:
+                bbox_pre.append(None)
+                continue
+
+            xyxy = box_tensor.clone()
+            xyxy[:, 2] = xyxy[:, 0] + xyxy[:, 2]
+            xyxy[:, 3] = xyxy[:, 1] + xyxy[:, 3]
+
+            norm = torch.tensor([w, h, w, h], dtype=torch.float32, device=self.device)
+            xyxy = xyxy / norm
+            cxcywh = box_xyxy_to_cxcywh(xyxy)
+            cxcywh = (cxcywh * 2 - 1.) * self.scale
+            bbox_pre.append(cxcywh)
+
         #shape = (batch, self.num_proposals-len(bbox_pretrain), 4)
         shape = (batch, self.num_proposals, 4)
         #  print(batched_inputs)
@@ -337,11 +335,8 @@ class DiffusionDet(nn.Module):
         time_pairs = list(zip(times[:-1], times[1:]))  # [(T-1, T-2), (T-2, T-3), ..., (1, 0), (0, -1)]
 
         img = torch.randn(shape, device=self.device)
-        
-        #img = torch.concat((img, torch.stack(bbox_pre)),1)
+        warm_start_tensor = self._prepare_warm_start_tensor(bbox_pre, img.device)
 
-        
-        
 
         ensemble_score, ensemble_label, ensemble_coord = [], [], []
         
@@ -360,20 +355,12 @@ class DiffusionDet(nn.Module):
             pred_noise, x_start = preds.pred_noise, preds.pred_x_start
             
 
+            renew_mask = None
             if self.box_renewal:  # filter
-                score_per_image, box_per_image = outputs_class[k][-1][0], outputs_coord[-1][0]
-                threshold = 0.5
-            
-                score_per_image = torch.sigmoid(score_per_image)
-                value, _ = torch.max(score_per_image, -1, keepdim=False)
-                keep_idx = value > threshold
-                #print(value)
-                num_remain = torch.sum(keep_idx)
+                scores = torch.sigmoid(outputs_class[k][-1])
+                values, _ = torch.max(scores, -1)
+                renew_mask = values <= 0.5
 
-                pred_noise = pred_noise[:, keep_idx, :]
-                x_start = x_start[:, keep_idx, :]
-                img = img[:, keep_idx, :]
-            
             if time_next < 0:
                 
                 img = x_start
@@ -393,11 +380,8 @@ class DiffusionDet(nn.Module):
                   sigma * noise
             
             
-            if self.box_renewal:  # filter
-                # replenish with randn boxes
-                #img = torch.cat((img, torch.randn(1, self.num_proposal-len(bbox_pretrain), 4, device=img.device)), dim=1)
-                img = torch.cat((img, torch.randn(1, self.num_proposal, 4, device=img.device)), dim=1)
-                img = torch.concat((img, torch.stack(bbox_pre)),1)
+            if self.box_renewal:
+                img = self._renew_boxes(img, warm_start_tensor, renew_mask)
 
             if self.use_ensemble and self.sampling_timesteps > 1:
                 
@@ -1007,6 +991,62 @@ class DiffusionDet(nn.Module):
                 results.append(result)
 
         return results
+
+    def _prepare_warm_start_tensor(self, bbox_pre, device):
+        valid = [b for b in bbox_pre if b is not None and b.numel() > 0]
+        if not valid:
+            return None
+
+        max_len = max(b.shape[0] for b in valid)
+        if max_len == 0:
+            return None
+
+        padded_boxes = []
+        for boxes in bbox_pre:
+            if boxes is None or boxes.numel() == 0:
+                padded = torch.zeros((max_len, 4), device=device)
+            else:
+                tensor = boxes.to(device)
+                if tensor.shape[0] < max_len:
+                    pad = torch.zeros((max_len - tensor.shape[0], 4), device=device)
+                    tensor = torch.cat((tensor, pad), dim=0)
+                padded = tensor[:max_len]
+            padded_boxes.append(padded)
+
+        return torch.stack(padded_boxes, dim=0)
+
+    def _renew_boxes(self, img, warm_start_tensor, renew_mask):
+        if renew_mask is None:
+            return img
+
+        renewed = img.clone()
+        batch, num_proposals, _ = renewed.shape
+        renew_mask = renew_mask.to(device=img.device)
+
+        for b in range(batch):
+            mask = renew_mask[b]
+            if mask.ndim == 0:
+                mask = mask.unsqueeze(0)
+            mask = mask.to(torch.bool)
+            indices = torch.nonzero(mask, as_tuple=False).squeeze(-1)
+            needed = int(indices.numel())
+            if needed == 0:
+                continue
+
+            filled = 0
+            if warm_start_tensor is not None:
+                warm_candidates = warm_start_tensor[b]
+                valid_candidates = warm_candidates[(warm_candidates.abs().sum(dim=-1) > 0)]
+                if valid_candidates.numel() > 0:
+                    take = min(needed, valid_candidates.shape[0])
+                    renewed[b, indices[:take]] = valid_candidates[:take]
+                    filled = take
+
+            if filled < needed:
+                random_boxes = torch.randn(needed - filled, 4, device=img.device)
+                renewed[b, indices[filled:]] = random_boxes
+
+        return renewed
 
     def preprocess_image(self, batched_inputs):
         """
