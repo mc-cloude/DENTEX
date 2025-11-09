@@ -1,16 +1,26 @@
-import os
-import json
-from detectron2.config import get_cfg
-from hierarchialdet import DiffusionDetDatasetMapper, add_diffusiondet_config, DiffusionDetWithTTA
-from hierarchialdet.util.model_ema import add_model_ema_configs, may_build_model_ema, may_get_ema_checkpointer, EMAHook, \
-    apply_model_ema_and_restore, EMADetectionCheckpointer
-from hierarchialdet.predictor import VisualizationDemo
 import argparse
+import json
+import os
+from pathlib import Path
+
+import numpy as np
 import SimpleITK as sitk
-import glob
+
+from detectron2.config import get_cfg
+
+from hierarchialdet import DiffusionDetDatasetMapper, add_diffusiondet_config, DiffusionDetWithTTA
+from hierarchialdet.predictor import VisualizationDemo
+from hierarchialdet.util.model_ema import (
+    EMAHook,
+    EMADetectionCheckpointer,
+    add_model_ema_configs,
+    apply_model_ema_and_restore,
+    may_build_model_ema,
+    may_get_ema_checkpointer,
+)
 
 
-list_ids = [
+DEFAULT_IMAGE_METADATA = [
              {
                  "height":1316,
                  "width":2810,
@@ -1513,56 +1523,119 @@ list_ids = [
               }
            ]
 
+
+def _build_default_metadata():
+    mapping = {}
+    for entry in DEFAULT_IMAGE_METADATA:
+        mapping[entry["file_name"]] = entry
+    return mapping
+
+
+class ImageIdResolver:
+    def __init__(self, mapping=None):
+        self._mapping = mapping or _build_default_metadata()
+        self._sequence = [name for name, _ in sorted(self._mapping.items(), key=lambda item: item[1].get("id", 0))]
+
+    @classmethod
+    def from_dataset_json(cls, path: Path):
+        with path.open("r") as handle:
+            data = json.load(handle)
+
+        images = data.get("images")
+        if not isinstance(images, list):
+            raise ValueError(f"Unsupported metadata format in {path}")
+
+        mapping = {}
+        for image in images:
+            file_name = image.get("file_name")
+            if not file_name:
+                continue
+            mapping[file_name] = {
+                "id": image.get("id"),
+                "height": image.get("height"),
+                "width": image.get("width"),
+            }
+        return cls(mapping)
+
+    @property
+    def sequence(self):
+        return list(self._sequence)
+
+    def has_name(self, file_name: str) -> bool:
+        return file_name in self._mapping
+
+    def resolve(self, file_name: str, fallback: int) -> int:
+        entry = self._mapping.get(file_name)
+        if not entry:
+            return fallback
+        identifier = entry.get("id")
+        return identifier if identifier is not None else fallback
+
 def custom_format_output(outputs, img_ids):
     boxes = []
-    for k, instances in enumerate(outputs):
-        for i in range(len(instances)):
-            instance = instances[i]
-            bbox_coords = instance.pred_boxes.tensor[0].tolist()
+    for index, instances in enumerate(outputs):
+        if not len(instances):
+            continue
 
-            category_id_1 = instance.pred_classes_1[0].item()
-            category_id_2 = instance.pred_classes_2[0].item()
-            category_id_3 = instance.pred_classes_3[0].item()
-            img_id = img_ids[k]
+        scores = getattr(instances, "scores", None)
+        pred_boxes = instances.pred_boxes.tensor.cpu().numpy()
+        cls1 = getattr(instances, "pred_classes_1", None)
+        cls2 = getattr(instances, "pred_classes_2", None)
+        cls3 = getattr(instances, "pred_classes_3", None)
+
+        for i in range(len(instances)):
+            bbox_coords = pred_boxes[i].tolist()
+            img_id = img_ids[index]
+
             box = {
-                "name": f"{category_id_1} - {category_id_2} - {category_id_3}",
+                "name": f"{int(cls1[i]) if cls1 is not None else -1} - "
+                        f"{int(cls2[i]) if cls2 is not None else -1} - "
+                        f"{int(cls3[i]) if cls3 is not None else -1}",
                 "corners": [
                     [bbox_coords[0], bbox_coords[1], img_id],
                     [bbox_coords[0], bbox_coords[3], img_id],
                     [bbox_coords[2], bbox_coords[1], img_id],
-                    [bbox_coords[2], bbox_coords[3], img_id]
+                    [bbox_coords[2], bbox_coords[3], img_id],
                 ],
-                "probability": instance.scores[0].item(),
+                "probability": float(scores[i].item()) if scores is not None else 0.0,
             }
             boxes.append(box)
 
-        custom_annotations={
+    return {
         "name": "Regions of interest",
         "type": "Multiple 2D bounding boxes",
         "boxes": boxes,
-        "version": { "major": 1, "minor": 0 }
-        }
-    return custom_annotations
+        "version": {"major": 1, "minor": 0},
+    }
 
 
-def coco_format_output(outputs,img_ids):
+def coco_format_output(outputs, img_ids):
     coco_annotations = []
-    for k, instances in enumerate(outputs):
-        for i in range(len(instances)):
-            instance = instances[i]
-            bbox_coords = instance.pred_boxes.tensor[0].tolist()
-            bbox_coords[2] = bbox_coords[2] - bbox_coords[0]
-            bbox_coords[3] = bbox_coords[3] - bbox_coords[1]
+    for index, instances in enumerate(outputs):
+        if not len(instances):
+            continue
 
-            coco_annotation = {
-                            "image_id": img_ids[k],
-                            "category_id_1": instance.pred_classes_1[0].item(),
-                            "category_id_2": instance.pred_classes_2[0].item(),
-                            "category_id_3": instance.pred_classes_3[0].item(),
-                            "bbox": bbox_coords,
-                            "score": instance.scores[0].item(),
-                        }
-            coco_annotations.append(coco_annotation)
+        scores = getattr(instances, "scores", None)
+        pred_boxes = instances.pred_boxes.tensor.cpu().numpy()
+        cls1 = getattr(instances, "pred_classes_1", None)
+        cls2 = getattr(instances, "pred_classes_2", None)
+        cls3 = getattr(instances, "pred_classes_3", None)
+
+        for i in range(len(instances)):
+            bbox = pred_boxes[i].tolist()
+            bbox[2] = bbox[2] - bbox[0]
+            bbox[3] = bbox[3] - bbox[1]
+
+            coco_annotations.append(
+                {
+                    "image_id": img_ids[index],
+                    "category_id_1": int(cls1[i]) if cls1 is not None else -1,
+                    "category_id_2": int(cls2[i]) if cls2 is not None else -1,
+                    "category_id_3": int(cls3[i]) if cls3 is not None else -1,
+                    "bbox": bbox,
+                    "score": float(scores[i].item()) if scores is not None else 0.0,
+                }
+            )
     return coco_annotations
 
 
@@ -1575,6 +1648,48 @@ def get_parser():
         type=float,
         default=0.0,
         help="Minimum score for instance predictions to be shown",
+    )
+
+    parser.add_argument(
+        "--config-file",
+        type=str,
+        default=None,
+        help="Path to the model config file. Overrides PULSE_FINAL_CONFIG_PATH if provided.",
+    )
+
+    parser.add_argument(
+        "--model-weights",
+        type=str,
+        default=None,
+        help="Path to the trained weights file. Overrides PULSE_FINAL_WEIGHTS_PATH if provided.",
+    )
+
+    parser.add_argument(
+        "--input-volume",
+        type=str,
+        default=None,
+        help="Path to the input .mha volume. Overrides PULSE_FINAL_INPUT_VOLUME if provided.",
+    )
+
+    parser.add_argument(
+        "--input-dir",
+        type=str,
+        default=None,
+        help="Directory to search for .mha volumes when --input-volume is not supplied.",
+    )
+
+    parser.add_argument(
+        "--output-file",
+        type=str,
+        default=None,
+        help="Destination file for inference results in JSON format.",
+    )
+
+    parser.add_argument(
+        "--image-metadata",
+        type=str,
+        default=None,
+        help="Optional COCO-style JSON file describing validation images.",
     )
 
     parser.add_argument(
@@ -1597,49 +1712,168 @@ class Hierarchialdet:
     def __init__(self):
         self.cfg = None
         self.demo = None
-        self.input_dir = "input"
+        self.args = None
+        self.image_resolver = ImageIdResolver()
+        self.image_sequence = self.image_resolver.sequence
 
-    def setup(self):
-        args = get_parser().parse_args()
+    def _coerce_args(self, args):
+        if args is None:
+            return get_parser().parse_args()
+        if isinstance(args, argparse.Namespace):
+            return args
+        if isinstance(args, dict):
+            return argparse.Namespace(**args)
+        raise TypeError(f"Unsupported args type: {type(args)!r}")
+
+    def setup(self, args=None):
+        args = self._coerce_args(args)
+        self.args = args
+
         self.cfg = get_cfg()
         add_diffusiondet_config(self.cfg)
         add_model_ema_configs(self.cfg)
-        self.cfg.merge_from_file("/opt/app/configs/diffdet.custom.swinbase.nonpretrain.yaml")
-        self.cfg.MODEL.WEIGHTS = "/opt/app/pretrained_model/model_final.pth"
+
+        base_dir = Path(__file__).resolve().parent
+        default_config = base_dir / "configs/diffdet.custom.swinbase.nonpretrain.yaml"
+        config_override = (
+            args.config_file
+            or os.environ.get("PULSE_FINAL_CONFIG_PATH")
+            or os.environ.get("PULSE_CONFIG_PATH")
+        )
+        config_path = Path(config_override) if config_override else default_config
+        if not config_path.is_absolute():
+            config_path = (base_dir / config_path).resolve()
+        self.cfg.merge_from_file(str(config_path))
+
+        weights_override = (
+            args.model_weights
+            or os.environ.get("PULSE_FINAL_WEIGHTS_PATH")
+            or os.environ.get("PULSE_WEIGHTS_PATH")
+        )
+        if weights_override:
+            weights_path = Path(weights_override)
+            if not weights_path.is_absolute():
+                weights_path = (base_dir / weights_path).resolve()
+            self.cfg.MODEL.WEIGHTS = str(weights_path)
+        else:
+            default_weights = base_dir / "pretrained_model/model_final.pth"
+            if default_weights.exists():
+                self.cfg.MODEL.WEIGHTS = str(default_weights)
+
         self.cfg.merge_from_list(args.opts)
         self.cfg.MODEL.RETINANET.SCORE_THRESH_TEST = args.confidence_threshold
         self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = args.confidence_threshold
         self.cfg.MODEL.PANOPTIC_FPN.COMBINE.INSTANCES_CONFIDENCE_THRESH = args.confidence_threshold
         self.cfg.freeze()
-        self.demo = VisualizationDemo(self.cfg, k=2)
+        self.demo = VisualizationDemo(self.cfg)
 
-    def process(self):
-        self.setup()
+        metadata_override = args.image_metadata or os.environ.get("PULSE_IMAGE_METADATA")
+        resolver = self.image_resolver
+        if metadata_override:
+            metadata_path = Path(metadata_override)
+            if not metadata_path.is_absolute():
+                metadata_path = (base_dir / metadata_path).resolve()
+            if not metadata_path.exists():
+                raise FileNotFoundError(f"Metadata file not found at {metadata_path}")
+            resolver = ImageIdResolver.from_dataset_json(metadata_path)
 
-        #image_files = [f for f in os.listdir(self.input_dir) if os.path.isfile(os.path.join(self.input_dir, f))]
+        self.image_resolver = resolver
+        self.image_sequence = resolver.sequence
+
+    def _resolve_image_name(self, index: int) -> str:
+        if index < len(self.image_sequence):
+            return self.image_sequence[index]
+        fallback = f"test_{index}.png"
+        if self.image_resolver.has_name(fallback):
+            return fallback
+        return f"slice_{index}.png"
+
+    def _extract_slices(self, volume_array):
+        array = np.asarray(volume_array)
+        if array.ndim == 2:
+            return [array]
+        if array.ndim == 3:
+            return [array[idx] for idx in range(array.shape[0])]
+        if array.ndim == 4:
+            return [array[idx] for idx in range(array.shape[0])]
+        raise ValueError(f"Unsupported volume shape: {array.shape}")
+
+    def _prepare_slice(self, slice_array):
+        image = np.asarray(slice_array)
+        if image.ndim == 3 and image.shape[0] in (1, 3) and image.shape[-1] not in (1, 3):
+            image = np.moveaxis(image, 0, -1)
+        if image.ndim == 2:
+            image = np.stack([image] * 3, axis=-1)
+        if image.ndim == 3 and image.shape[-1] == 1:
+            image = np.repeat(image, 3, axis=-1)
+        if image.ndim != 3:
+            raise ValueError(f"Unexpected slice shape {image.shape}")
+
+        if image.dtype != np.uint8:
+            min_val = float(image.min())
+            max_val = float(image.max())
+            if max_val > min_val:
+                image = (image - min_val) / (max_val - min_val)
+            image = (np.clip(image, 0.0, 1.0) * 255).astype(np.uint8)
+
+        return image
+
+    def process(self, args=None):
+        if args is not None or self.demo is None or self.args is None:
+            self.setup(args)
+        args = self.args
 
         all_outputs = []
         img_ids = []
-        
-        file_path = glob.glob('/input/images/panoramic-dental-xrays/*.mha')[0]
-        image = sitk.ReadImage(file_path)
-        image_array = sitk.GetArrayFromImage(image)
-        for k in range(image_array.shape[2]):
-            image_name = "test_{}.png".format(k)
-            predictions, _ = self.demo.run_on_image(image_array[:,:,k,:])
-            instances = predictions["instances"]
-            all_outputs.append(instances)
-            for input_img in list_ids:
-                if input_img["file_name"] == image_name:
-                    img_id = input_img["id"]
-            img_ids.append(img_id)
-        coco_annotations = custom_format_output(all_outputs,img_ids)
 
-        output_file = "/output/abnormal-teeth-detection.json"
-        with open(output_file, "w") as f:
+        input_dir = args.input_dir or os.environ.get(
+            "PULSE_FINAL_INPUT_DIR", "/input/images/panoramic-dental-xrays"
+        )
+        input_dir_path = Path(input_dir).resolve()
+        volume_override = args.input_volume or os.environ.get("PULSE_FINAL_INPUT_VOLUME")
+
+        if volume_override:
+            volume_path = Path(volume_override)
+            if not volume_path.is_absolute():
+                volume_path = (input_dir_path / volume_path).resolve()
+        else:
+            candidates = sorted(input_dir_path.glob("*.mha"))
+            if not candidates:
+                raise FileNotFoundError(f"No .mha volumes found in {input_dir_path}")
+            volume_path = candidates[0]
+
+        if not volume_path.exists():
+            raise FileNotFoundError(f"Input volume not found at {volume_path}")
+
+        image = sitk.ReadImage(str(volume_path))
+        image_array = sitk.GetArrayFromImage(image)
+        slices = self._extract_slices(image_array)
+
+        for idx, slice_array in enumerate(slices):
+            prepared_slice = self._prepare_slice(slice_array)
+            predictions, _ = self.demo.run_on_image(prepared_slice)
+            instances = predictions.get("instances")
+            if instances is None:
+                instances = []
+            all_outputs.append(instances)
+
+            image_name = self._resolve_image_name(idx)
+            img_ids.append(self.image_resolver.resolve(image_name, idx + 1))
+
+        coco_annotations = custom_format_output(all_outputs, img_ids)
+
+        output_override = args.output_file or os.environ.get(
+            "PULSE_FINAL_OUTPUT_FILE", "/output/abnormal-teeth-detection.json"
+        )
+        output_path = Path(output_override)
+        if not output_path.is_absolute():
+            output_path = (Path.cwd() / output_path).resolve()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with output_path.open("w") as f:
             json.dump(coco_annotations, f)
 
-        print("Inference completed. Results saved to", output_file)
+        print(f"Inference completed. Results saved to {output_path}")
 
 
 if __name__ == "__main__":

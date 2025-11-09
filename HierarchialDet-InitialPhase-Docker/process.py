@@ -1,118 +1,84 @@
 import os
 import json
+from pathlib import Path
+
+import argparse
+import numpy as np
+import SimpleITK as sitk
+
 from detectron2.config import get_cfg
+from detectron2.data import MetadataCatalog
+
 from hierarchialdet import DiffusionDetDatasetMapper, add_diffusiondet_config, DiffusionDetWithTTA
 from hierarchialdet.util.model_ema import add_model_ema_configs, may_build_model_ema, may_get_ema_checkpointer, EMAHook, \
     apply_model_ema_and_restore, EMADetectionCheckpointer
 from hierarchialdet.predictor import VisualizationDemo
-import argparse
-import SimpleITK as sitk
-import glob
-
-
-list_ids = [
-                          {"height": 1316, "width": 2892, "id": 1, "file_name": "val_15.png"},
-                          {"height": 1316, "width": 2942, "id": 2, "file_name": "val_38.png"},
-                          {"height": 1316, "width": 2987, "id": 3, "file_name": "val_33.png"},
-                          {"height": 1504, "width": 2872, "id": 4, "file_name": "val_30.png"},
-                          {"height": 1316, "width": 2970, "id": 5, "file_name": "val_5.png"},
-                          {"height": 1316, "width": 2860, "id": 6, "file_name": "val_21.png"},
-                          {"height": 1504, "width": 2804, "id": 7, "file_name": "val_39.png"},
-                          {"height": 1316, "width": 2883, "id": 8, "file_name": "val_46.png"},
-                          {"height": 1316, "width": 2967, "id": 9, "file_name": "val_20.png"},
-                          {"height": 1504, "width": 2872, "id": 10, "file_name": "val_3.png"},
-                          {"height": 1316, "width": 2954, "id": 11, "file_name": "val_29.png"},
-                          {"height": 976, "width": 1976, "id": 12, "file_name": "val_2.png"},
-                          {"height": 1316, "width": 2870, "id": 13, "file_name": "val_16.png"},
-                          {"height": 1316, "width": 3004, "id": 14, "file_name": "val_25.png"},
-                          {"height": 1316, "width": 2745, "id": 15, "file_name": "val_24.png"},
-                          {"height": 1504, "width": 2872, "id": 16, "file_name": "val_31.png"},
-                          {"height": 1316, "width": 2782, "id": 17, "file_name": "val_26.png"},
-                          {"height": 1316, "width": 2744, "id": 18, "file_name": "val_44.png"},
-                          {"height": 1504, "width": 2872, "id": 19, "file_name": "val_27.png"},
-                          {"height": 1504, "width": 2868, "id": 20, "file_name": "val_41.png"},
-                          {"height": 1316, "width": 3000, "id": 21, "file_name": "val_37.png"},
-                          {"height": 1316, "width": 2797, "id": 22, "file_name": "val_40.png"},
-                          {"height": 1316, "width": 2930, "id": 23, "file_name": "val_6.png"},
-                          {"height": 1316, "width": 3003, "id": 24, "file_name": "val_18.png"},
-                          {"height": 1316, "width": 2967, "id": 25, "file_name": "val_13.png"},
-                          {"height": 1316, "width": 2822, "id": 26, "file_name": "val_8.png"},
-                          {"height": 1316, "width": 2836, "id": 27, "file_name": "val_49.png"},
-                          {"height": 1316, "width": 2704, "id": 28, "file_name": "val_23.png"},
-                          {"height": 976, "width": 1976, "id": 29, "file_name": "val_1.png"},
-                          {"height": 1504, "width": 2872, "id": 30, "file_name": "val_43.png"},
-                          {"height": 1504, "width": 2872, "id": 31, "file_name": "val_28.png"},
-                          {"height": 1504, "width": 2872, "id": 32, "file_name": "val_19.png"},
-                          {"height": 1316, "width": 2728, "id": 33, "file_name": "val_14.png"},
-                          {"height": 1316, "width": 2747, "id": 34, "file_name": "val_32.png"},
-                          {"height": 976, "width": 1976, "id": 35, "file_name": "val_36.png"},
-                          {"height": 1316, "width": 2829, "id": 36, "file_name": "val_47.png"},
-                          {"height": 1316, "width": 2846, "id": 37, "file_name": "val_48.png"},
-                          {"height": 1536, "width": 3076, "id": 38, "file_name": "val_17.png"},
-                          {"height": 976, "width": 1976, "id": 39, "file_name": "val_42.png"},
-                          {"height": 1504, "width": 2884, "id": 40, "file_name": "val_45.png"},
-                          {"height": 1316, "width": 2741, "id": 41, "file_name": "val_9.png"},
-                          {"height": 1316, "width": 2794, "id": 42, "file_name": "val_4.png"},
-                          {"height": 1316, "width": 2959, "id": 43, "file_name": "val_34.png"},
-                          {"height": 1316, "width": 2874, "id": 44, "file_name": "val_10.png"},
-                          {"height": 1316, "width": 2978, "id": 45, "file_name": "val_35.png"},
-                          {"height": 1504, "width": 2884, "id": 46, "file_name": "val_11.png"},
-                          {"height": 1316, "width": 2794, "id": 47, "file_name": "val_12.png"},
-                          {"height": 1316, "width": 2959, "id": 48, "file_name": "val_7.png"},
-                          {"height": 1316, "width": 2912, "id": 49, "file_name": "val_22.png"},
-                          {"height": 1504, "width": 2872, "id": 50, "file_name": "val_0.png"},
-                      ]
 
 def custom_format_output(outputs, img_ids):
     boxes = []
-    for k, instances in enumerate(outputs):
-        for i in range(len(instances)):
-            instance = instances[i]
-            bbox_coords = instance.pred_boxes.tensor[0].tolist()
+    for index, instances in enumerate(outputs):
+        if not len(instances):
+            continue
 
-            category_id_1 = instance.pred_classes_1[0].item()
-            category_id_2 = instance.pred_classes_2[0].item()
-            category_id_3 = instance.pred_classes_3[0].item()
-            img_id = img_ids[k]
+        scores = getattr(instances, "scores", None)
+        pred_boxes = instances.pred_boxes.tensor.cpu().numpy()
+        cls1 = getattr(instances, "pred_classes_1", None)
+        cls2 = getattr(instances, "pred_classes_2", None)
+        cls3 = getattr(instances, "pred_classes_3", None)
+
+        for i in range(len(instances)):
+            bbox_coords = pred_boxes[i].tolist()
+            img_id = img_ids[index]
+
             box = {
-                "name": f"{category_id_1} - {category_id_2} - {category_id_3}",
+                "name": f"{int(cls1[i]) if cls1 is not None else -1} - "
+                        f"{int(cls2[i]) if cls2 is not None else -1} - "
+                        f"{int(cls3[i]) if cls3 is not None else -1}",
                 "corners": [
                     [bbox_coords[0], bbox_coords[1], img_id],
                     [bbox_coords[0], bbox_coords[3], img_id],
                     [bbox_coords[2], bbox_coords[1], img_id],
-                    [bbox_coords[2], bbox_coords[3], img_id]
+                    [bbox_coords[2], bbox_coords[3], img_id],
                 ],
-                "probability": instance.scores[0].item(),
+                "probability": float(scores[i].item()) if scores is not None else 0.0,
             }
             boxes.append(box)
 
-        custom_annotations={
+    return {
         "name": "Regions of interest",
         "type": "Multiple 2D bounding boxes",
         "boxes": boxes,
-        "version": { "major": 1, "minor": 0 }
-        }
-    return custom_annotations
+        "version": {"major": 1, "minor": 0},
+    }
 
 
-def coco_format_output(outputs,img_ids):
+def coco_format_output(outputs, img_ids):
     coco_annotations = []
-    for k, instances in enumerate(outputs):
-        for i in range(len(instances)):
-            instance = instances[i]
-            bbox_coords = instance.pred_boxes.tensor[0].tolist()
-            bbox_coords[2] = bbox_coords[2] - bbox_coords[0]
-            bbox_coords[3] = bbox_coords[3] - bbox_coords[1]
+    for index, instances in enumerate(outputs):
+        if not len(instances):
+            continue
 
-            coco_annotation = {
-                            "image_id": img_ids[k],
-                            "category_id_1": instance.pred_classes_1[0].item(),
-                            "category_id_2": instance.pred_classes_2[0].item(),
-                            "category_id_3": instance.pred_classes_3[0].item(),
-                            "bbox": bbox_coords,
-                            "score": instance.scores[0].item(),
-                        }
-            coco_annotations.append(coco_annotation)
+        scores = getattr(instances, "scores", None)
+        pred_boxes = instances.pred_boxes.tensor.cpu().numpy()
+        cls1 = getattr(instances, "pred_classes_1", None)
+        cls2 = getattr(instances, "pred_classes_2", None)
+        cls3 = getattr(instances, "pred_classes_3", None)
+
+        for i in range(len(instances)):
+            bbox = pred_boxes[i].tolist()
+            bbox[2] = bbox[2] - bbox[0]
+            bbox[3] = bbox[3] - bbox[1]
+
+            coco_annotations.append(
+                {
+                    "image_id": img_ids[index],
+                    "category_id_1": int(cls1[i]) if cls1 is not None else -1,
+                    "category_id_2": int(cls2[i]) if cls2 is not None else -1,
+                    "category_id_3": int(cls3[i]) if cls3 is not None else -1,
+                    "bbox": bbox,
+                    "score": float(scores[i].item()) if scores is not None else 0.0,
+                }
+            )
     return coco_annotations
 
 
@@ -125,6 +91,41 @@ def get_parser():
         type=float,
         default=0.0,
         help="Minimum score for instance predictions to be shown",
+    )
+
+    parser.add_argument(
+        "--config-file",
+        type=str,
+        default=None,
+        help="Path to the model config file. Overrides PULSE_CONFIG_PATH if provided.",
+    )
+
+    parser.add_argument(
+        "--model-weights",
+        type=str,
+        default=None,
+        help="Path to the trained weights file. Overrides PULSE_WEIGHTS_PATH if provided.",
+    )
+
+    parser.add_argument(
+        "--input-volume",
+        type=str,
+        default=None,
+        help="Path to the input .mha volume. Overrides PULSE_INPUT_VOLUME if provided.",
+    )
+
+    parser.add_argument(
+        "--input-dir",
+        type=str,
+        default=None,
+        help="Directory to search for .mha volumes when --input-volume is not supplied.",
+    )
+
+    parser.add_argument(
+        "--output-file",
+        type=str,
+        default=None,
+        help="Destination file for inference results in JSON format.",
     )
 
     parser.add_argument(
@@ -147,50 +148,158 @@ class Hierarchialdet:
     def __init__(self):
         self.cfg = None
         self.demo = None
-        self.input_dir = "input"
+        self.args = None
+        self.image_lookup = {}
+        self.image_sequence = []
 
-    def setup(self):
-        args = get_parser().parse_args()
+    def _coerce_args(self, args):
+        if args is None:
+            return get_parser().parse_args()
+        if isinstance(args, argparse.Namespace):
+            return args
+        if isinstance(args, dict):
+            return argparse.Namespace(**args)
+        raise TypeError(f"Unsupported args type: {type(args)!r}")
+
+    def setup(self, args=None):
+        args = self._coerce_args(args)
+        self.args = args
         self.cfg = get_cfg()
         add_diffusiondet_config(self.cfg)
         add_model_ema_configs(self.cfg)
-        self.cfg.merge_from_file("/opt/app/configs/diffdet.custom.swinbase.nonpretrain.yaml")
-        self.cfg.MODEL.WEIGHTS = "/opt/app/pretrained_model/model_final.pth"
+
+        base_dir = Path(__file__).resolve().parent
+        default_config = base_dir / "configs/diffdet.custom.swinbase.nonpretrain.yaml"
+        config_override = args.config_file or os.environ.get("PULSE_CONFIG_PATH")
+        config_path = Path(config_override) if config_override else default_config
+        if not config_path.is_absolute():
+            config_path = (base_dir / config_path).resolve()
+        self.cfg.merge_from_file(str(config_path))
+
+        weights_override = args.model_weights or os.environ.get("PULSE_WEIGHTS_PATH")
+        if weights_override:
+            weights_path = Path(weights_override)
+            if not weights_path.is_absolute():
+                weights_path = (base_dir / weights_path).resolve()
+            self.cfg.MODEL.WEIGHTS = str(weights_path)
+        else:
+            default_weights = base_dir / "pretrained_model/model_final.pth"
+            if default_weights.exists():
+                self.cfg.MODEL.WEIGHTS = str(default_weights)
+
         self.cfg.merge_from_list(args.opts)
         self.cfg.MODEL.RETINANET.SCORE_THRESH_TEST = args.confidence_threshold
         self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = args.confidence_threshold
         self.cfg.MODEL.PANOPTIC_FPN.COMBINE.INSTANCES_CONFIDENCE_THRESH = args.confidence_threshold
         self.cfg.freeze()
-        self.demo = VisualizationDemo(self.cfg, k=2)
+        self.demo = VisualizationDemo(self.cfg)
 
-    def process(self):
-        self.setup()
+        dataset_name = self.cfg.DATASETS.TEST[0] if len(self.cfg.DATASETS.TEST) else None
+        self.image_lookup = {}
+        self.image_sequence = []
+        if dataset_name:
+            metadata = MetadataCatalog.get(dataset_name)
+            json_file = getattr(metadata, "json_file", None)
+            if json_file and os.path.isfile(json_file):
+                with open(json_file, "r") as dataset_file:
+                    dataset = json.load(dataset_file)
+                images = dataset.get("images", [])
+                self.image_sequence = [img["file_name"] for img in sorted(images, key=lambda x: x.get("id", 0))]
+                self.image_lookup = {img["file_name"]: img["id"] for img in images}
 
-        #image_files = [f for f in os.listdir(self.input_dir) if os.path.isfile(os.path.join(self.input_dir, f))]
+    def _resolve_image_name(self, index: int) -> str:
+        if index < len(self.image_sequence):
+            return self.image_sequence[index]
+
+        fallback = f"val_{index}.png"
+        if fallback in self.image_lookup:
+            return fallback
+        return f"slice_{index}.png"
+
+    def _extract_slices(self, volume_array):
+        array = np.asarray(volume_array)
+        if array.ndim == 2:
+            return [array]
+        if array.ndim == 3:
+            return [array[idx] for idx in range(array.shape[0])]
+        if array.ndim == 4:
+            return [array[idx] for idx in range(array.shape[0])]
+        raise ValueError(f"Unsupported volume shape: {array.shape}")
+
+    def _prepare_slice(self, slice_array):
+        image = np.asarray(slice_array)
+        if image.ndim == 3 and image.shape[0] in (1, 3) and image.shape[-1] not in (1, 3):
+            image = np.moveaxis(image, 0, -1)
+        if image.ndim == 2:
+            image = np.stack([image] * 3, axis=-1)
+        if image.ndim == 3 and image.shape[-1] == 1:
+            image = np.repeat(image, 3, axis=-1)
+        if image.ndim != 3:
+            raise ValueError(f"Unexpected slice shape {image.shape}")
+
+        if image.dtype != np.uint8:
+            min_val = float(image.min())
+            max_val = float(image.max())
+            if max_val > min_val:
+                image = (image - min_val) / (max_val - min_val)
+            image = (np.clip(image, 0.0, 1.0) * 255).astype(np.uint8)
+
+        return image
+
+    def process(self, args=None):
+        if args is not None or self.demo is None or self.args is None:
+            self.setup(args)
+        args = self.args
 
         all_outputs = []
         img_ids = []
-        
-        file_path = glob.glob('/input/images/panoramic-dental-xrays/*.mha')[0]
-        image = sitk.ReadImage(file_path)
-        image_array = sitk.GetArrayFromImage(image)
-        print("test..")
-        for k in range(image_array.shape[2]):
-            image_name = "val_{}.png".format(k)
-            predictions, _ = self.demo.run_on_image(image_array[:,:,k,:])
-            instances = predictions["instances"]
-            all_outputs.append(instances)
-            for input_img in list_ids:
-                if input_img["file_name"] == image_name:
-                    img_id = input_img["id"]
-            img_ids.append(img_id)
-        coco_annotations = custom_format_output(all_outputs,img_ids)
 
-        output_file = "/output/abnormal-teeth-detection.json"
-        with open(output_file, "w") as f:
+        input_dir = args.input_dir or os.environ.get("PULSE_INPUT_DIR", "/input/images/panoramic-dental-xrays")
+        input_dir_path = Path(input_dir).resolve()
+        volume_override = args.input_volume or os.environ.get("PULSE_INPUT_VOLUME")
+
+        if volume_override:
+            volume_path = Path(volume_override)
+            if not volume_path.is_absolute():
+                volume_path = (input_dir_path / volume_path).resolve()
+        else:
+            candidates = sorted(input_dir_path.glob("*.mha"))
+            if not candidates:
+                raise FileNotFoundError(f"No .mha volumes found in {input_dir_path}")
+            volume_path = candidates[0]
+
+        if not volume_path.exists():
+            raise FileNotFoundError(f"Input volume not found at {volume_path}")
+
+        image = sitk.ReadImage(str(volume_path))
+        image_array = sitk.GetArrayFromImage(image)
+        slices = self._extract_slices(image_array)
+
+        for idx, slice_array in enumerate(slices):
+            prepared_slice = self._prepare_slice(slice_array)
+            predictions, _ = self.demo.run_on_image(prepared_slice)
+            instances = predictions.get("instances")
+            if instances is None:
+                instances = []
+            all_outputs.append(instances)
+
+            image_name = self._resolve_image_name(idx)
+            img_ids.append(self.image_lookup.get(image_name, idx + 1))
+
+        coco_annotations = custom_format_output(all_outputs, img_ids)
+
+        output_override = args.output_file or os.environ.get(
+            "PULSE_OUTPUT_FILE", "/output/abnormal-teeth-detection.json"
+        )
+        output_path = Path(output_override)
+        if not output_path.is_absolute():
+            output_path = (Path.cwd() / output_path).resolve()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with output_path.open("w") as f:
             json.dump(coco_annotations, f)
 
-        print("Inference completed. Results saved to", output_file)
+        print(f"Inference completed. Results saved to {output_path}")
 
 
 if __name__ == "__main__":
