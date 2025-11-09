@@ -1,0 +1,7 @@
+name: corporate_wellness_coach
+description: |
+  Motivates employees via micro-actions and compliance-aware nudges.
+compliance:
+  region: gcc
+  consent_scopes:
+    - ai:coach

@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Apple Health Sleep",
+  "type": "object",
+  "required": ["user_id", "date", "sleep_hours", "deep_sleep_hours"],
+  "properties": {
+    "user_id": {"type": "string"},
+    "date": {"type": "string", "format": "date"},
+    "sleep_hours": {"type": "number", "minimum": 0, "maximum": 24},
+    "deep_sleep_hours": {"type": "number", "minimum": 0, "maximum": 24},
+    "hrv": {"type": "number", "minimum": 0}
+  }
+}

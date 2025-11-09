@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install backend deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install fastapi uvicorn httpx prometheus-client jsonschema pytest
+      - name: Run smoke tests
+        run: pytest tests/smoke -q
+      - name: Validate contracts
+        run: python data/contracts/validate_contract.py --src data/contracts/examples/fitbit_daily_sample.json --schema data/contracts/wearables/v1/fitbit_daily.json
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.0'
+      - name: Flutter analyze
+        run: flutter analyze frontend
+      - name: Build Flutter web
+        run: flutter build web --source-dir frontend

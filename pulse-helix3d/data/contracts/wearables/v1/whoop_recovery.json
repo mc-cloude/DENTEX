@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "WHOOP Recovery",
+  "type": "object",
+  "required": ["user_id", "date", "recovery_score", "sleep_performance"],
+  "properties": {
+    "user_id": {"type": "string"},
+    "date": {"type": "string", "format": "date"},
+    "recovery_score": {"type": "number", "minimum": 0, "maximum": 100},
+    "sleep_performance": {"type": "number", "minimum": 0, "maximum": 100},
+    "strain": {"type": "number", "minimum": 0, "maximum": 21}
+  }
+}

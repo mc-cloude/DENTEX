@@ -1,0 +1,21 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: weaviate-compaction
+spec:
+  schedule: "0 3 * * 1"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: weaviate-maintainer
+          containers:
+            - name: compactor
+              image: ghcr.io/pulse/weaviate-compactor:1.0.0
+              env:
+                - name: WEAVIATE_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: weaviate-api
+                      key: api-key
+          restartPolicy: OnFailure

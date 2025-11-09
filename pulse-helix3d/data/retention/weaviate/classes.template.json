@@ -1,0 +1,12 @@
+{
+  "class": "PulseDoc_${TENANT}",
+  "vectorizer": "text2vec-transformers",
+  "properties": [
+    {"name": "text", "dataType": ["text"], "moduleConfig": {"text2vec-transformers": {"skip": false}}},
+    {"name": "consent_scopes", "dataType": ["text[]"]},
+    {"name": "ttl_days", "dataType": ["int"]},
+    {"name": "tenant", "dataType": ["text"]},
+    {"name": "created_at", "dataType": ["date"]},
+    {"name": "expires_at", "dataType": ["date"]}
+  ]
+}

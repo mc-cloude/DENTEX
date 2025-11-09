@@ -1,0 +1,6 @@
+name: planner
+role: fitness_mentor
+llm:
+  provider: azure_openai_gcc
+  model: gpt-4o
+  temperature: 0.2

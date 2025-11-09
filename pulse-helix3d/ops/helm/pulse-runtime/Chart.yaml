@@ -1,0 +1,9 @@
+apiVersion: v2
+name: pulse-runtime
+version: 0.1.0
+appVersion: "1.0.0-RC3"
+dependencies:
+  - name: prometheus
+    repository: https://prometheus-community.github.io/helm-charts
+    version: 25.0.0
+    condition: prometheus.enabled

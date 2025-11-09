@@ -1,0 +1,17 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: dsr-orchestrator
+spec:
+  schedule: {{ .Values.retention.dsrCron.schedule | quote }}
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: dsr
+              image: ghcr.io/pulse/dsr-orchestrator:1.0.0-rc3
+              envFrom:
+                - secretRef:
+                    name: dsr-secrets
+          restartPolicy: OnFailure

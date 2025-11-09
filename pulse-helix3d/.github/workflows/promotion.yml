@@ -1,0 +1,24 @@
+name: Promotion
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        required: true
+        type: string
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to staging
+        run: |
+          helmfile -f ops/helmfile/helmfile-envs.yaml -e staging sync
+      - name: Run staging smoke
+        run: pytest tests/smoke -q
+      - name: Promote to prod
+        run: |
+          helmfile -f ops/helmfile/helmfile-envs.yaml -e prod sync
+      - name: Notify Slack
+        run: echo "Promotion complete for ${{ inputs.image_tag }}"

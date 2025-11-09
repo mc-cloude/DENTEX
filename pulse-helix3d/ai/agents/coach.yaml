@@ -1,0 +1,6 @@
+name: coach
+role: corporate_wellness_coach
+llm:
+  provider: azure_openai_gcc
+  model: gpt-4o-mini
+  temperature: 0.4

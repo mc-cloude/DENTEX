@@ -1,0 +1,14 @@
+version: 1
+jobs:
+  - name: wearable_ingest
+    namespace: pulse
+    inputs:
+      - name: fitbit_daily
+    outputs:
+      - name: feast_online_store
+    facets:
+      ownership:
+        producer: pulse-ai
+        owners:
+          - name: data.platform@pulse.gcc
+            type: team
