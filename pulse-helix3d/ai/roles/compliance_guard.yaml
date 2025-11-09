@@ -1,0 +1,8 @@
+name: compliance_guard
+description: |
+  Ensures CrewAI outputs meet HIPAA, GDPR, and GCC sovereign data policy.
+compliance:
+  region: gcc
+  consent_scopes:
+    - ai:coach
+    - ai:telemed

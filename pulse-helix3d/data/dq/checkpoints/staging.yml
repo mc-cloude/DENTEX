@@ -1,0 +1,4 @@
+name: staging_fitbit_daily
+suite: fitbit_daily_suite
+cron: "0 * * * *"
+slack_channel: "#pulse-dq"

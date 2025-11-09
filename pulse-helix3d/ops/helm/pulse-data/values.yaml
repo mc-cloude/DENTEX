@@ -1,0 +1,9 @@
+marquez:
+  fullnameOverride: marquez
+  postgresql:
+    enabled: true
+  service:
+    type: ClusterIP
+retention:
+  dsrCron:
+    schedule: "0 2 * * *"

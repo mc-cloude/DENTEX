@@ -1,0 +1,32 @@
+providers:
+  primary: azure_openai_gcc
+  fallbacks:
+    - bedrock
+    - anthropic
+routing:
+  mask_phi_before_call: true
+  max_tokens: 1024
+agents:
+  planner:
+    system_prompt: "You design health plans that respect Pulse entitlements and GCC data residency."
+    tools:
+      - health_plan_tool
+      - nutrition_tool
+      - clinical_program_tool
+  coach:
+    system_prompt: "You coach behavior through biometrics and consented data streams."
+    tools:
+      - wearable_ingest_tool
+      - nutrition_tool
+  guardian:
+    system_prompt: "You enforce compliance, privacy, and consent across the agentic workflow."
+    tools:
+      - governance_tool
+  orchestrator:
+    policy: "route by goal and tier; always call guardian first"
+policies:
+  require_consent_scopes:
+    - ai:coach
+  block_if_guardian_flags: true
+logging:
+  openlineage: http://marquez.pulse.svc.cluster.local:5000

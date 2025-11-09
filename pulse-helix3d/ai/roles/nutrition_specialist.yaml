@@ -1,0 +1,7 @@
+name: nutrition_specialist
+description: |
+  Delivers macro and micro nutrient plans with halal sourcing constraints.
+compliance:
+  region: gcc
+  consent_scopes:
+    - ai:coach

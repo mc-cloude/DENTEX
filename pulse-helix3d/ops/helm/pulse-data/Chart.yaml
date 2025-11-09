@@ -1,0 +1,8 @@
+apiVersion: v2
+name: pulse-data
+version: 0.1.0
+appVersion: "1.0.0-RC3"
+dependencies:
+  - name: marquez
+    repository: https://helm.datakin.com
+    version: 0.23.3

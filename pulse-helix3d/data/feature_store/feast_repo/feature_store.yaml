@@ -1,0 +1,7 @@
+project: pulse_helix3d
+registry: data/feature_store/registry.db
+provider: local
+online_store:
+  type: redis
+  connection_string: redis://redis.pulse:6379
+entity_key_serialization_version: 2

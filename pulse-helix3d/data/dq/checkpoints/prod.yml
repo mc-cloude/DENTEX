@@ -1,0 +1,4 @@
+name: prod_fitbit_daily
+suite: fitbit_daily_suite
+cron: "*/15 * * * *"
+slack_channel: "#pulse-dq-critical"

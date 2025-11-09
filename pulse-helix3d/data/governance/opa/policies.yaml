@@ -1,0 +1,7 @@
+bundles:
+  pulse:
+    service: opa-bundle
+    resource: bundles/pulse.tar.gz
+services:
+  opa-bundle:
+    url: https://opa.pulse.gcc/bundles

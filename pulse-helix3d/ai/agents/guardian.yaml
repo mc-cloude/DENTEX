@@ -1,0 +1,6 @@
+name: guardian
+role: compliance_guard
+llm:
+  provider: anthropic
+  model: claude-3-opus
+  temperature: 0.1

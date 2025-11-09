@@ -1,0 +1,5 @@
+name: orchestrator
+role: guardian
+strategy:
+  type: policy
+  enforcement: guardian_first

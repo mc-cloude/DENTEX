@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Fitbit Daily Summary",
+  "type": "object",
+  "required": ["user_id", "date", "steps", "hrv"],
+  "properties": {
+    "user_id": {"type": "string"},
+    "date": {"type": "string", "format": "date"},
+    "steps": {"type": "integer", "minimum": 0},
+    "hrv": {"type": "number", "minimum": 0},
+    "sleep_minutes": {"type": "integer", "minimum": 0}
+  }
+}

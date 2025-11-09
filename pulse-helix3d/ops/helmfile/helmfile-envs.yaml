@@ -1,0 +1,14 @@
+repositories:
+  - name: pulse
+    url: https://charts.pulse.gcc
+releases:
+  - name: pulse-runtime
+    namespace: pulse-prod
+    chart: ./../helm/pulse-runtime
+    values:
+      - values.yaml
+  - name: pulse-data
+    namespace: pulse-prod
+    chart: ./../helm/pulse-data
+    values:
+      - values.yaml

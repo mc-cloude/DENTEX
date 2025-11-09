@@ -1,0 +1,7 @@
+name: fitness_mentor
+description: |
+  Guides high-performance employees through HRV, VO2, and strain training blocks.
+compliance:
+  region: gcc
+  consent_scopes:
+    - ai:coach

@@ -1,0 +1,27 @@
+{{- if .Values.ingenress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pulse-api
+  annotations:
+    cert-manager.io/cluster-issuer: pulse-issuer
+spec:
+  ingressClassName: {{ .Values.ingenress.className }}
+  tls:
+    - hosts:
+        - {{ (index .Values.ingenress.hosts 0).host }}
+      secretName: pulse-api-tls
+  rules:
+  {{- range .Values.ingenress.hosts }}
+    - host: {{ .host }}
+      http:
+        paths:
+          - path: {{ (index .paths 0).path }}
+            pathType: {{ (index .paths 0).pathType }}
+            backend:
+              service:
+                name: pulse-api
+                port:
+                  number: {{ $.Values.service.port }}
+  {{- end }}
+{{- end }}

@@ -1,0 +1,17 @@
+image:
+  repository: ghcr.io/pulse/api-gateway
+  tag: 1.0.0-rc3
+  pullPolicy: IfNotPresent
+service:
+  type: ClusterIP
+  port: 8080
+ingenress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: ai.pulse.gcc
+      paths:
+        - path: /
+          pathType: Prefix
+prometheus:
+  enabled: true
